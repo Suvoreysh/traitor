@@ -36,6 +36,7 @@ function view(room, me) {
   return {
     now: Date.now(), code: room.code, phase: ph, stage: room.stage, circleNo: room.circleNo, gameNo: room.gameNo,
     deadline: room.deadline, dur: room.dur, winner: room.winner, minPlayers: MIN_PLAYERS,
+    times: { round1: room.T.round1, circle: room.T.circle, night: room.T.night },
     me: { id: me.id, name: me.name, role: started ? me.role : null, admin: me.id === room.adminId, alive: me.alive, vote: me.vote },
     players: room.players.map(p => ({
       id: p.id, name: p.name, alive: p.alive,
@@ -55,7 +56,7 @@ function push(room) {
 function go(room, phase) {
   clearTimeout(room.timer);
   room.phase = phase;
-  room.dur = T[phase] || 0;
+  room.dur = room.T[phase] || 0;
   room.deadline = room.dur ? Date.now() + room.dur * 1000 : 0;
   if (phase === 'round1' || phase === 'circle' || phase === 'night') {
     room.stage = phase; room.players.forEach(p => { p.vote = null; }); room.tally = null; room.result = null;
@@ -193,6 +194,17 @@ function act(room, me, b) {
     if (!tgt.alive || tgt.role === 'traitor') return 'Invalid target';
     me.vote = tgt.id; return push(room);
   }
+  if (a === 'settime') {
+    if (me.id !== room.adminId || ph !== 'lobby') return 'Not allowed';
+    for (const k of ['round1', 'circle', 'night']) { const v = Math.round(+b[k]); if (v) room.T[k] = Math.min(1800, Math.max(30, v)); }
+    return push(room);
+  }
+  if (a === 'extend') {
+    if (me.id !== room.adminId || !['round1', 'circle', 'night'].includes(ph) || !room.deadline) return 'Not allowed';
+    room.deadline += 60000; room.dur += 60; clearTimeout(room.timer);
+    room.timer = setTimeout(() => advance(room), room.deadline - Date.now());
+    return push(room);
+  }
   if (a === 'skip') {
     if (me.id !== room.adminId || !T[ph]) return 'Not allowed';
     return advance(room);
@@ -224,7 +236,7 @@ function login(b) {
     if (phone !== ADMIN_PHONE) return [403, { error: 'Only the admin can create games' }];
     if (!name) return [400, { error: 'Enter your name' }];
     for (const r of Object.values(rooms)) { const p = r.players.find(x => x.phone === phone); if (p && p.id === r.adminId) destroy(r); else if (p) leaveRoom(r, p); }
-    const room = { code: newCode(), phase: 'lobby', stage: null, circleNo: 0, gameNo: 0, totalTraitors: 0, players: [], chat: [], audios: {}, seq: 0, log: [], deadline: 0, dur: 0, timer: null, adminId: null, tally: null, result: null, winner: null, event: { id: 0, text: '', title: '', kind: 'info' }, last: Date.now() };
+    const room = { code: newCode(), phase: 'lobby', stage: null, circleNo: 0, gameNo: 0, totalTraitors: 0, T: { ...T }, players: [], chat: [], audios: {}, seq: 0, log: [], deadline: 0, dur: 0, timer: null, adminId: null, tally: null, result: null, winner: null, event: { id: 0, text: '', title: '', kind: 'info' }, last: Date.now() };
     rooms[room.code] = room;
     const p = addPlayer(room, name, phone); room.adminId = p.id;
     return [200, session(room, p)];
@@ -350,9 +362,9 @@ input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(244,210,122,.15)}
 .meter{height:10px;border-radius:6px;background:var(--red);overflow:hidden;margin:6px 0 4px;box-shadow:inset 0 2px 3px rgba(0,0,0,.5)}.meter i{display:block;height:100%;background:var(--green);transition:width .6s}
 .stage3d{position:relative;width:100%;aspect-ratio:1/.8;perspective:950px;margin:2px 0 6px}
 .tbl{position:absolute;left:0;top:50%;width:100%;aspect-ratio:1/1;margin-top:-50%;transform-style:preserve-3d;transform:rotateX(56deg)}
-.felt{position:absolute;inset:9%;border-radius:50%;background:radial-gradient(circle at 50% 40%,#6a1a26,#2a0b10 72%);box-shadow:0 0 0 7px #3a2810,0 0 0 10px #b08a3e,0 28px 40px rgba(0,0,0,.75),inset 0 0 40px rgba(0,0,0,.6)}
+.felt{pointer-events:none;position:absolute;inset:9%;border-radius:50%;background:radial-gradient(circle at 50% 40%,#6a1a26,#2a0b10 72%);box-shadow:0 0 0 7px #3a2810,0 0 0 10px #b08a3e,0 28px 40px rgba(0,0,0,.75),inset 0 0 40px rgba(0,0,0,.6)}
 .felt.night{background:radial-gradient(circle at 50% 40%,#1c2350,#080a1c 72%)}
-.ctr{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:44px;transform:rotateX(-56deg);opacity:.9;filter:drop-shadow(0 6px 6px #000)}
+.ctr{pointer-events:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:44px;transform:rotateX(-56deg);opacity:.9;filter:drop-shadow(0 6px 6px #000)}
 .seat{position:absolute;transform:translate(-50%,-50%) rotateX(-56deg);transform-origin:50% 60%;text-align:center;width:70px;cursor:default}
 .av{margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;border:3px solid rgba(255,255,255,.25);
  box-shadow:0 8px 10px rgba(0,0,0,.6),inset 0 -5px 8px rgba(0,0,0,.35),inset 0 4px 6px rgba(255,255,255,.25);position:relative;transition:transform .15s,box-shadow .15s}
@@ -365,6 +377,7 @@ input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(244,210,122,.15)}
 .nm{font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 2px 3px #000;font-weight:600}
 .bdg{position:absolute;top:-6px;right:-8px;font-size:12px;background:#000c;border-radius:10px;padding:0 5px;border:1px solid #fff3}
 .rl{font-size:9px;color:#ff9d8f;text-transform:uppercase;letter-spacing:1px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-height:128px;overflow:auto;margin-bottom:6px}.chips button{background:#1c2030;border:1px solid #2b3047;color:#eee;border-radius:20px;padding:9px 14px;font-size:14px;font-weight:600;cursor:pointer}.chips button.on{border-color:var(--gold);background:#3a2a0e;color:var(--gold)}
 .bar{position:sticky;bottom:64px;z-index:15}
 .bar .card{border-color:#6d5219;box-shadow:0 -6px 24px rgba(0,0,0,.6),0 16px 30px rgba(0,0,0,.45)}
 .res{font-size:17px;font-weight:700;text-align:center}.res small{display:block;font-weight:500;color:var(--mut);margin-top:6px;font-size:13px}
@@ -510,7 +523,7 @@ function seatHTML(p,i,n){
   return'<div class="'+cls+'" style="left:'+x+'%;top:'+y+'%" '+(cp?'data-a="pick" data-id="'+p.id+'"':'')+'><div class="av" style="width:'+sz+'px;height:'+sz+'px;font-size:'+(sz*.42)+'px;background:radial-gradient(circle at 35% 30%,hsl('+hue(p.name)+',65%,60%),hsl('+hue(p.name)+',60%,28%))">'+esc(p.name.charAt(0).toUpperCase())+bd+'</div><div class="nm">'+esc(p.name)+(p.id===me.id?' (you)':'')+'</div>'+rl+'</div>';
 }
 function updGame(){
-  var me=S.me,p=S.phase,c=S.counts,inn=c.alive-c.traitorsLeft,ex=explain(),h='';
+  var me=S.me,p=S.phase,c=S.counts,inn=c.alive-c.traitorsLeft,ex=explain(),h='';var keep={},fid=document.activeElement&&document.activeElement.id;['tm1','tm2','tm3'].forEach(function(i){var e=$(i);if(e)keep[i]=e.value});
   if(p!=='lobby'&&p!=='over'){var st=S.stage;h+='<div class="steps"><div class="'+(st==='round1'?'cur':'')+'">1 · Round 1</div><div class="'+(st==='circle'?'cur':'')+'">⚖️ Circle</div><div class="'+(st==='night'?'cur':'')+'">🌙 Killing</div><span class="mut">↻</span></div>'}
   h+='<div class="card ex"><div class="exh"><span class="exi">'+ex.i+'</span><div class="ext">'+esc(ex.t)+'</div>'+ringHTML()+'</div><div class="exw"><b>What to do:</b> '+ex.w+'</div><div class="exy"><b>Why:</b> '+ex.y+'</div></div>';
   if(me.role&&p!=='lobby'){var mates=S.players.filter(function(x){return x.role==='traitor'&&x.id!==me.id}).map(function(x){return x.name});
@@ -522,6 +535,7 @@ function updGame(){
   if(p==='lobby'){
     h+='<div class="card tilt center"><div class="mut sm">GAME CODE</div><div class="codebig">'+S.code+'</div><div class="row" style="margin-top:12px"><button class="btn gold sm" data-a="share" style="flex:1">📤 Share</button><button class="btn alt sm" data-a="wa" style="flex:1">WhatsApp</button><button class="btn alt sm" data-a="copy" style="flex:1">Copy</button></div></div>'+
     '<div class="card"><div class="mut sm" style="margin-bottom:6px">Players joined ('+S.players.length+')</div>'+S.players.map(function(x){return'<span class="pl">'+esc(x.name)+(x.id===me.id?' (you)':'')+'</span>'}).join('')+'</div>';
+    h+='<div class="card"><div class="mut sm" style="margin-bottom:8px">Round timers (minutes)'+(me.admin?'':' — set by admin')+'</div><div class="row">'+[['tm1','Round 1',S.times.round1],['tm2','Circle',S.times.circle],['tm3','Killing',S.times.night]].map(function(x){return'<div style="flex:1"><label>'+x[1]+'</label><input id="'+x[0]+'" type="number" step="0.5" min="0.5" max="30" value="'+(x[2]/60)+'"'+(me.admin?'':' disabled')+' style="margin:0;text-align:center"></div>'}).join('')+'</div>'+(me.admin?'<button class="btn alt" style="margin:10px 0 0;padding:10px" data-a="settime">Save timers</button>':'')+'</div>';
     h+=me.admin?'<button class="btn" data-a="start"'+(S.players.length<S.minPlayers?' disabled':'')+'>▶ Start game ('+(S.players.length<S.minPlayers?'need '+S.minPlayers+'+ players':S.players.length+' players')+')</button>':'<div class="card center mut">Waiting for the admin to start...</div>';
   }else{
     var n=S.players.length,ic={round1:'🗣',circle:'⚖️',reveal:'📜',night:'🌙',dawn:'🌅',over:'🏁'}[p];
@@ -531,15 +545,15 @@ function updGame(){
     if(p==='over'){h+='<div class="card res">'+(S.winner==='traitors'?'🗡 The traitors win!':'🛡 The innocents win!')+'<small>'+S.players.map(function(x){return esc(x.name)+': '+x.role}).join(' · ')+'</small></div>'}
     var vp=(p==='round1'||p==='circle'||(p==='night'&&me.role==='traitor'))&&me.alive;
     if(vp){var night=p==='night',cur=me.vote?pById(me.vote):null,sp=sel?pById(sel):null;
-      h+='<div class="bar"><div class="card center">'+(cur?'Your vote: <b>'+esc(cur.name)+'</b> ✔':'<span class="mut">No vote yet — tap a player on the table</span>');
+      h+='<div class="bar"><div class="card center">'+(cur?'Your vote: <b>'+esc(cur.name)+'</b> ✔':'<span class="mut">No vote yet — tap a name below</span>');h+='<div class="chips" style="margin-top:8px">'+S.players.filter(canPick).map(function(x){return'<button class="'+(sel===x.id?'on':'')+'" data-a="pick" data-id="'+x.id+'">'+esc(x.name)+(me.vote===x.id?' ✔':'')+'</button>'}).join('')+'</div>';
       if(sp&&canPick(sp))h+='<button class="btn" style="margin:10px 0 0" data-a="'+(night?'kill':'vote')+'" data-id="'+sp.id+'">'+(night?'🗡 Kill ':'🗳 Vote for ')+esc(sp.name)+'</button>';
       if(cur)h+='<button class="btn alt" style="margin:10px 0 0;padding:10px" data-a="clear">Remove my vote</button>';
       h+='<div class="mut sm" style="margin-top:6px">'+(night?'Locks when the timer ends.':'Secret. You can change it until the timer ends.')+'</div></div></div>';
     }
     if(me.admin&&p==='over')h+='<button class="btn gold" data-a="again">🔄 Play again (same players)</button>';
-    if(me.admin&&T_OK[p])h+='<button class="btn alt" data-a="skip" style="padding:10px;font-size:14px">⏭ End timer now (admin)</button>';
+    if(me.admin&&T_OK[p]){h+='<div class="row">'+((p==='round1'||p==='circle'||p==='night')?'<button class="btn alt" data-a="extend" style="padding:10px;font-size:14px">➕ +1 min</button>':'')+'<button class="btn alt" data-a="skip" style="padding:10px;font-size:14px">⏭ End timer now</button></div>'}
   }
-  $('t-game').innerHTML=h;
+  $('t-game').innerHTML=h;for(var k in keep){var e2=$(k);if(e2&&!e2.disabled&&keep[k]!=='')e2.value=keep[k]}if(fid&&keep[fid]!==undefined&&$(fid))$(fid).focus();
 }
 var T_OK={round1:1,circle:1,reveal:1,night:1,dawn:1};
 function onGameClick(e){
@@ -548,7 +562,7 @@ function onGameClick(e){
   else if(a==='vote'){act('vote',{target:id})}
   else if(a==='kill'){act('kill',{target:id})}
   else if(a==='clear'){act(S.phase==='night'?'kill':'vote',{target:null})}
-  else if(a==='start')act('start');else if(a==='skip')act('skip');else if(a==='again')act('restart');
+  else if(a==='settime'){act('settime',{round1:Math.round(parseFloat($('tm1').value)*60),circle:Math.round(parseFloat($('tm2').value)*60),night:Math.round(parseFloat($('tm3').value)*60)})}else if(a==='extend')act('extend');else if(a==='start')act('start');else if(a==='skip')act('skip');else if(a==='again')act('restart');
   else if(a==='share')share();else if(a==='wa')window.open('https://wa.me/?text='+encodeURIComponent(shareText()),'_blank');
   else if(a==='copy')copyText(shareText(),'Invite copied!');else if(a==='rolecard')showRole(true);
 }
