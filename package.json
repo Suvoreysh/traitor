@@ -1,0 +1,1 @@
+{"name":"traitor-game","version":"1.0.0","scripts":{"start":"node traitor-single.js"}}
