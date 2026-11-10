@@ -209,7 +209,16 @@ function act(room, me, b) {
     if (room.players.length < MIN_PLAYERS) return 'Need at least ' + MIN_PLAYERS + ' players';
     const ps = shuffle(room.players.slice()), nT = traitorsFor(ps.length);
     room.players.forEach(p => { p.role = 'innocent'; p.alive = true; p.vote = null; });
-    ps.slice(0, nT).forEach(p => { p.role = 'traitor'; });
+    // Fair + unpredictable: crypto-random weighted pick. Everyone (admin included) can be traitor;
+    // players who have been traitor less often in earlier games get a higher chance.
+    const pool = ps.slice();
+    for (let k = 0; k < nT; k++) {
+      const mx = Math.max(...pool.map(p => p.tc || 0));
+      const w = pool.map(p => 2 + (mx - (p.tc || 0)) * 2);
+      let r = rnd(w.reduce((x, y) => x + y, 0)), i = 0;
+      while (r >= w[i]) { r -= w[i]; i++; }
+      const pick = pool.splice(i, 1)[0]; pick.role = 'traitor'; pick.tc = (pick.tc || 0) + 1;
+    }
     room.totalTraitors = nT; room.gameNo++; room.circleNo = 0; room.winner = null; room.candidates = null; room.runoffs = 0; room.revote = false;
     room.chat = []; room.audios = {}; room.log = ['🎲 Game started: ' + ps.length + ' players, ' + nT + ' traitor' + (nT > 1 ? 's' : '') + ' hiding among them.'];
     say(room, 'The game begins. ' + ps.length + ' players. ' + nT + (nT > 1 ? ' traitors hide' : ' traitor hides') + ' among you.', 'GAME START', 'info');
